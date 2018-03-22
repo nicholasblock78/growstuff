@@ -1,38 +1,24 @@
 class PostsController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :show]
+  before_action :authenticate_member!, except: %i(index show)
   load_and_authorize_resource
+  respond_to :html, :json
+  respond_to :rss, only: %i(index show)
 
   # GET /posts
   # GET /posts.json
-
+  # GET /posts.rss
   def index
     @author = Member.find_by(slug: params[:author])
-    @posts = if @author
-               @author.posts.includes(:author, { comments: :author }).paginate(page: params[:page])
-             else
-               Post.includes(:author, { comments: :author }).paginate(page: params[:page])
-             end
-
-    respond_to do |format|
-      format.html # index.html.haml
-      format.json { render json: @posts }
-      format.rss { render layout: false } # index.rss.builder
-    end
+    @posts = posts
+    respond_with(@posts)
   end
 
   # GET /posts/1
   # GET /posts/1.json
+  # GET /posts/1.rss
   def show
-    @post = Post.includes(:author, { comments: :author }).find(params[:id])
-
-    respond_to do |format|
-      format.html # show.html.haml
-      format.json { render json: @post }
-      format.rss { render(
-        layout: false,
-        locals: { post: @post }
-      )}
-    end
+    @post = Post.includes(:author, comments: :author).find(params[:id])
+    respond_with(@post)
   end
 
   # GET /posts/new
@@ -40,62 +26,46 @@ class PostsController < ApplicationController
   def new
     @post = Post.new
     @forum = Forum.find_by(id: params[:forum_id])
-
-    respond_to do |format|
-      format.html # new.html.haml
-      format.json { render json: @post }
-    end
+    respond_with(@post)
   end
 
   # GET /posts/1/edit
-  def edit
-  end
+  def edit; end
 
   # POST /posts
   # POST /posts.json
   def create
     params[:post][:author_id] = current_member.id
     @post = Post.new(post_params)
-
-    respond_to do |format|
-      if @post.save
-        format.html { redirect_to @post, notice: 'Post was successfully created.' }
-        format.json { render json: @post, status: :created, location: @post }
-      else
-        format.html { render action: "new" }
-        format.json { render json: @post.errors, status: :unprocessable_entity }
-      end
-    end
+    flash[:notice] = 'Post was successfully created.' if @post.save
+    respond_with(@post)
   end
 
   # PUT /posts/1
   # PUT /posts/1.json
   def update
-    respond_to do |format|
-      if @post.update(post_params)
-        format.html { redirect_to @post, notice: 'Post was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @post.errors, status: :unprocessable_entity }
-      end
-    end
+    flash[:notice] = 'Post was successfully updated.' if @post.update(post_params)
+    respond_with(@post)
   end
 
   # DELETE /posts/1
   # DELETE /posts/1.json
   def destroy
-    @post.destroy
-
-    respond_to do |format|
-      format.html { redirect_to posts_url, notice: 'Post was deleted.' }
-      format.json { head :no_content }
-    end
+    flash[:notice] = 'Post was deleted.' if @post.destroy
+    respond_with(@post)
   end
 
   private
 
   def post_params
     params.require(:post).permit(:body, :subject, :author_id, :forum_id)
+  end
+
+  def posts
+    if @author
+      @author.posts
+    else
+      Post
+    end.order(created_at: :desc).includes(:author, comments: :author).paginate(page: params[:page])
   end
 end

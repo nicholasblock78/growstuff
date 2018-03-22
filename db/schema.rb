@@ -11,26 +11,10 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema.define(version: 20161201154922) do
+ActiveRecord::Schema.define(version: 20180213005731) do
 
   # These are extensions that must be enabled in order to support this database
   enable_extension "plpgsql"
-
-  create_table "account_types", force: :cascade do |t|
-    t.string   "name",              null: false
-    t.boolean  "is_paid"
-    t.boolean  "is_permanent_paid"
-    t.datetime "created_at"
-    t.datetime "updated_at"
-  end
-
-  create_table "accounts", force: :cascade do |t|
-    t.integer  "member_id",       null: false
-    t.integer  "account_type_id"
-    t.datetime "paid_until"
-    t.datetime "created_at"
-    t.datetime "updated_at"
-  end
 
   create_table "alternate_names", force: :cascade do |t|
     t.string   "name",       null: false
@@ -181,19 +165,23 @@ ActiveRecord::Schema.define(version: 20161201154922) do
   end
 
   create_table "crops", force: :cascade do |t|
-    t.string   "name",                                      null: false
+    t.string   "name",                                              null: false
     t.string   "en_wikipedia_url"
     t.datetime "created_at"
     t.datetime "updated_at"
     t.string   "slug"
     t.integer  "parent_id"
-    t.integer  "plantings_count",      default: 0
+    t.integer  "plantings_count",              default: 0
     t.integer  "creator_id"
     t.integer  "requester_id"
-    t.string   "approval_status",      default: "approved"
+    t.string   "approval_status",              default: "approved"
     t.text     "reason_for_rejection"
     t.text     "request_notes"
     t.text     "rejection_notes"
+    t.boolean  "perennial",                    default: false
+    t.integer  "median_lifespan"
+    t.integer  "median_days_to_first_harvest"
+    t.integer  "median_days_to_last_harvest"
   end
 
   add_index "crops", ["name"], name: "index_crops_on_name", using: :btree
@@ -265,7 +253,10 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.string   "weight_unit"
     t.integer  "plant_part_id"
     t.float    "si_weight"
+    t.integer  "planting_id"
   end
+
+  add_index "harvests", ["planting_id"], name: "index_harvests_on_planting_id", using: :btree
 
   create_table "harvests_photos", id: false, force: :cascade do |t|
     t.integer "photo_id"
@@ -273,6 +264,22 @@ ActiveRecord::Schema.define(version: 20161201154922) do
   end
 
   add_index "harvests_photos", ["harvest_id", "photo_id"], name: "index_harvests_photos_on_harvest_id_and_photo_id", using: :btree
+
+  create_table "likes", force: :cascade do |t|
+    t.integer  "member_id"
+    t.integer  "likeable_id"
+    t.string   "likeable_type"
+    t.string   "categories",    array: true
+    t.datetime "created_at"
+    t.datetime "updated_at"
+  end
+
+  add_index "likes", ["likeable_id"], name: "index_likes_on_likeable_id", using: :btree
+  add_index "likes", ["likeable_type", "likeable_id"], name: "index_likes_on_likeable_type_and_likeable_id", using: :btree
+  add_index "likes", ["member_id"], name: "index_likes_on_member_id", using: :btree
+
+  create_table "median_functions", force: :cascade do |t|
+  end
 
   create_table "members", force: :cascade do |t|
     t.string   "email",                   default: "",   null: false
@@ -307,9 +314,14 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.boolean  "newsletter"
     t.boolean  "send_planting_reminder",  default: true
     t.string   "preferred_avatar_uri"
+    t.integer  "gardens_count"
+    t.integer  "harvests_count"
+    t.integer  "seeds_count"
+    t.datetime "deleted_at"
   end
 
   add_index "members", ["confirmation_token"], name: "index_members_on_confirmation_token", unique: true, using: :btree
+  add_index "members", ["deleted_at"], name: "index_members_on_deleted_at", using: :btree
   add_index "members", ["email"], name: "index_members_on_email", unique: true, using: :btree
   add_index "members", ["reset_password_token"], name: "index_members_on_reset_password_token", unique: true, using: :btree
   add_index "members", ["slug"], name: "index_members_on_slug", unique: true, using: :btree
@@ -331,29 +343,21 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.datetime "updated_at"
   end
 
-  create_table "order_items", force: :cascade do |t|
-    t.integer  "order_id"
-    t.integer  "product_id"
-    t.integer  "price"
-    t.integer  "quantity"
-    t.datetime "created_at"
-    t.datetime "updated_at"
-  end
-
-  create_table "orders", force: :cascade do |t|
-    t.datetime "created_at"
-    t.datetime "updated_at"
-    t.datetime "completed_at"
-    t.integer  "member_id"
-    t.string   "paypal_express_token"
-    t.string   "paypal_express_payer_id"
-    t.string   "referral_code"
-  end
-
   create_table "orders_products", id: false, force: :cascade do |t|
     t.integer "order_id"
     t.integer "product_id"
   end
+
+  create_table "photographings", force: :cascade do |t|
+    t.integer  "photo_id",            null: false
+    t.integer  "photographable_id",   null: false
+    t.string   "photographable_type", null: false
+    t.datetime "created_at",          null: false
+    t.datetime "updated_at",          null: false
+  end
+
+  add_index "photographings", ["photographable_id", "photographable_type", "photo_id"], name: "items_to_photos_idx", unique: true, using: :btree
+  add_index "photographings", ["photographable_id", "photographable_type"], name: "photographable_idx", using: :btree
 
   create_table "photos", force: :cascade do |t|
     t.integer  "owner_id",        null: false
@@ -366,6 +370,7 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.string   "license_url"
     t.string   "link_url",        null: false
     t.string   "flickr_photo_id"
+    t.datetime "date_taken"
   end
 
   create_table "photos_plantings", id: false, force: :cascade do |t|
@@ -388,8 +393,8 @@ ActiveRecord::Schema.define(version: 20161201154922) do
   end
 
   create_table "plantings", force: :cascade do |t|
-    t.integer  "garden_id",                            null: false
-    t.integer  "crop_id",                              null: false
+    t.integer  "garden_id",                             null: false
+    t.integer  "crop_id",                               null: false
     t.date     "planted_at"
     t.integer  "quantity"
     t.text     "description"
@@ -399,9 +404,12 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.string   "sunniness"
     t.string   "planted_from"
     t.integer  "owner_id"
-    t.boolean  "finished",             default: false
+    t.boolean  "finished",              default: false
     t.date     "finished_at"
-    t.integer  "days_before_maturity"
+    t.integer  "lifespan"
+    t.integer  "days_to_first_harvest"
+    t.integer  "days_to_last_harvest"
+    t.integer  "parent_seed_id"
   end
 
   add_index "plantings", ["slug"], name: "index_plantings_on_slug", unique: true, using: :btree
@@ -418,17 +426,6 @@ ActiveRecord::Schema.define(version: 20161201154922) do
 
   add_index "posts", ["created_at", "author_id"], name: "index_posts_on_created_at_and_author_id", using: :btree
   add_index "posts", ["slug"], name: "index_posts_on_slug", unique: true, using: :btree
-
-  create_table "products", force: :cascade do |t|
-    t.string   "name",              null: false
-    t.text     "description",       null: false
-    t.integer  "min_price",         null: false
-    t.datetime "created_at"
-    t.datetime "updated_at"
-    t.integer  "account_type_id"
-    t.integer  "paid_months"
-    t.integer  "recommended_price"
-  end
 
   create_table "roles", force: :cascade do |t|
     t.string   "name",        null: false
@@ -463,8 +460,15 @@ ActiveRecord::Schema.define(version: 20161201154922) do
     t.text     "organic",                 default: "unknown"
     t.text     "gmo",                     default: "unknown"
     t.text     "heirloom",                default: "unknown"
+    t.boolean  "finished",                default: false
+    t.date     "finished_at"
+    t.integer  "parent_planting_id"
   end
 
   add_index "seeds", ["slug"], name: "index_seeds_on_slug", unique: true, using: :btree
 
+  add_foreign_key "harvests", "plantings"
+  add_foreign_key "photographings", "photos"
+  add_foreign_key "plantings", "seeds", column: "parent_seed_id", name: "parent_seed", on_delete: :nullify
+  add_foreign_key "seeds", "plantings", column: "parent_planting_id", name: "parent_planting", on_delete: :nullify
 end

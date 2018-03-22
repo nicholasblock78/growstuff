@@ -2,11 +2,14 @@
   .comment
     .row
       .col-md-1
-        = render :partial => "members/avatar", :locals => { :member => comment.author }
+        = render partial: "members/avatar", locals: { member: comment.author }
       .col-md-11
         .comment-meta
           Posted by
-          = link_to comment.author.login_name, member_path(comment.author)
+          - if comment.author
+            = link_to comment.author.login_name, member_path(comment.author)
+          - else
+            Member Deleted
           on
           = comment.created_at
           - if comment.updated_at > comment.created_at
@@ -17,11 +20,11 @@
           :growstuff_markdown
             #{ strip_tags comment.body }
 
-        - if can? :edit, comment or can? :destroy, comment
+        - if can?(:edit, comment) || can?(:destroy, comment)
           .comment-actions
             - if can? :edit, comment
-              = link_to 'Edit', edit_comment_path(comment), :class => 'btn btn-default btn-xs'
+              = link_to 'Edit', edit_comment_path(comment), class: 'btn btn-default btn-xs'
             - if can? :destroy, comment
-              = link_to 'Delete', comment, method: :delete, |
-                data: { confirm: 'Are you sure?' }, :class => 'btn btn-default btn-xs'
+              = link_to 'Delete', comment, method: :delete,
+                data: { confirm: 'Are you sure?' }, class: 'btn btn-default btn-xs'
 

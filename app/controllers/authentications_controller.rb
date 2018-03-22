@@ -1,3 +1,4 @@
+require './lib/actions/oauth_signup_action'
 class AuthenticationsController < ApplicationController
   before_action :authenticate_member!
   load_and_authorize_resource
@@ -18,7 +19,8 @@ class AuthenticationsController < ApplicationController
         .find_or_create_by(
           provider: auth['provider'],
           uid: auth['uid'],
-          name: name)
+          name: name
+        )
 
       flash[:notice] = "Authentication successful."
     else
@@ -29,7 +31,6 @@ class AuthenticationsController < ApplicationController
 
   # DELETE /authentications/1
   def destroy
-    @authentication = Authentication.find(params[:id])
     @authentication.destroy
 
     respond_to do |format|

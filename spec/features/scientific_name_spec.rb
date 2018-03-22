@@ -36,7 +36,7 @@ feature "Scientific names", js: true do
       fill_in 'Name', with: "Zea mirabila"
       click_on "Save"
       expect(page).to have_content "Zea mirabila"
-      expect(page).to have_content 'Scientific name was successfully updated'
+      expect(page).to have_content 'crop was successfully updated'
     end
 
     scenario "Crop wranglers can delete scientific names" do
@@ -45,8 +45,8 @@ feature "Scientific names", js: true do
         href: scientific_name_path(zea_mays)
       within('.scientific_names') { click_on "Delete" }
       expect(page.status_code).to equal 200
-      expect(page).to_not have_content zea_mays.name
-      expect(page).to have_content 'Scientific name was successfully deleted'
+      expect(page).not_to have_content zea_mays.name
+      expect(page).to have_content 'Scientific name was successfully deleted.'
     end
 
     scenario "Crop wranglers can add scientific names" do
@@ -60,7 +60,7 @@ feature "Scientific names", js: true do
       click_on "Save"
       expect(page.status_code).to equal 200
       expect(page).to have_content "Zea mirabila"
-      expect(page).to have_content 'Scientific name was successfully created'
+      expect(page).to have_content 'crop was successfully created.'
     end
 
     scenario "The show-scientific-name page works" do

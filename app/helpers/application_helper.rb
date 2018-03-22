@@ -1,11 +1,11 @@
 module ApplicationHelper
   def price_in_dollars(price)
-    sprintf('%.2f', price / 100.0)
+    format('%.2f', price / 100.0)
   end
 
   # 999 cents becomes 9.99 AUD -- for products/orders/etc
   def price_with_currency(price)
-    sprintf('%.2f %s', price / 100.0, Growstuff::Application.config.currency)
+    format('%.2f %s', price / 100.0, Growstuff::Application.config.currency)
   end
 
   def parse_date(str)
@@ -55,6 +55,7 @@ module ApplicationHelper
   # Falls back to Gravatar
   #
   def avatar_uri(member, size = 150)
+    return unless member
     if member.preferred_avatar_uri.present?
       # Some avatars support different sizes
       # http://graph.facebook.com/12345678/picture?width=150&height=150
@@ -70,10 +71,8 @@ module ApplicationHelper
       return uri.to_s
     end
 
-    Gravatar.new(member.email).image_url({
-                                           size: size,
-                                           default: :identicon
-                                         })
+    Gravatar.new(member.email).image_url(size: size,
+                                         default: :identicon)
   end
 
   # Returns a string with the quantity and the right pluralization for a
@@ -82,5 +81,32 @@ module ApplicationHelper
     size       = collection.size
     model_name = model.model_name.human(count: size)
     "#{size} #{model_name}"
+  end
+
+  def show_inactive_tickbox_path(type, owner, show_all)
+    all = show_all ? '' : 1
+    if owner
+      plantings_by_owner_path(owner: owner.slug, all: all) if type == 'plantings'
+      gardens_by_owner_path(owner: owner.slug, all: all) if type == 'gardens'
+    else
+      plantings_path(all: all) if type == 'plantings'
+      gardens_path(all: all) if type == 'gardens'
+    end
+  end
+
+  def title(type, owner, crop, planting)
+    if owner
+      t(".title.owner_#{type}", owner: owner.login_name)
+    elsif crop
+      t(".title.crop_#{type}", crop: crop.name)
+    elsif planting
+      t(".title.planting_#{type}", planting: planting.to_s)
+    else
+      t(".title.default")
+    end
+  end
+
+  def og_description(description)
+    strip_tags(description).split(' ')[0..20].join(' ')
   end
 end

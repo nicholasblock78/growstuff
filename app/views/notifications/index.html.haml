@@ -1,6 +1,8 @@
 - content_for :title, "Inbox"
 
-- if @notifications.size > 0
+- if @notifications.empty?
+  You have no messages.
+- else
   = paginate @notifications, theme: 'twitter-bootstrap-3'
   %table.table.table-striped
     %tr
@@ -13,10 +15,13 @@
       - if can? :read, n
         %tr
           %td
-            - if n.read
-              = link_to n.sender, member_path(n.sender)
+            - if n.sender.present?
+              - if n.read
+                = link_to n.sender, member_path(n.sender)
+              - else
+                %strong= link_to n.sender, member_path(n.sender)
             - else
-              %strong= link_to n.sender, member_path(n.sender)
+              *deleted member*
           %td
             - if n.read
               = link_to n.subject, notification_path(n)
@@ -28,7 +33,5 @@
             - else
               %strong= n.created_at
           %td
-            = link_to 'Delete', n, method: :delete, data: { confirm: 'Are you sure?' }, :class => 'btn btn-default btn-xs'
+            = link_to 'Delete', n, method: :delete, data: { confirm: 'Are you sure?' }, class: 'btn btn-default btn-xs'
   = paginate @notifications, theme: 'twitter-bootstrap-3'
-- else
-  You have no messages.

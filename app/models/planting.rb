@@ -1,60 +1,140 @@
 class Planting < ActiveRecord::Base
   extend FriendlyId
   include PhotoCapable
-  friendly_id :planting_slug, use: [:slugged, :finders]
+  include Finishable
+  friendly_id :planting_slug, use: %i(slugged finders)
+
+  # Constants
+  SUNNINESS_VALUES = %w(sun semi-shade shade).freeze
+  PLANTED_FROM_VALUES = [
+    'seed', 'seedling', 'cutting', 'root division', 'runner',
+    'bulb', 'root/tuber', 'bare root plant', 'advanced plant',
+    'graft', 'layering'
+  ].freeze
+
+  ##
+  ## Triggers
+  before_save :calculate_lifespan
 
   belongs_to :garden
   belongs_to :owner, class_name: 'Member', counter_cache: true
   belongs_to :crop, counter_cache: true
+  has_many :harvests, dependent: :destroy
 
-  default_scope { order("created_at desc") }
-  scope :finished, -> { where(finished: true) }
-  scope :current, -> { where(finished: false) }
+  #
+  # Ancestry of food
+  belongs_to :parent_seed, class_name: 'Seed', foreign_key: 'parent_seed_id' # parent
+  has_many :child_seeds, class_name: 'Seed',
+                         foreign_key: 'parent_planting_id', dependent: :nullify # children
 
-  delegate :name,
-    :en_wikipedia_url,
-    :default_scientific_name,
-    :plantings_count,
-    to: :crop,
-    prefix: true
+  ##
+  ## Scopes
+  default_scope { joins(:owner) } # Ensures the owner still exists
+  scope :interesting, -> { has_photos.one_per_owner }
+  scope :recent, -> { order(created_at: :desc) }
+  scope :one_per_owner, lambda {
+    joins("JOIN members m ON (m.id=plantings.owner_id)
+           LEFT OUTER JOIN plantings p2
+           ON (m.id=p2.owner_id AND plantings.id < p2.id)").where("p2 IS NULL")
+  }
 
-  default_scope { order("created_at desc") }
+  ##
+  ## Delegations
+  delegate :name, :en_wikipedia_url, :default_scientific_name, :plantings_count,
+    to: :crop, prefix: true
 
-  validates :crop, approved: true
-
-  validates :crop, presence: { message: "must be present and exist in our database" }
-
-  validates :quantity,
-    numericality: {
-      only_integer: true,
-      greater_than_or_equal_to: 0 },
-    allow_nil: true
-
-  SUNNINESS_VALUES = %w(sun semi-shade shade)
-  validates :sunniness, inclusion: { in: SUNNINESS_VALUES,
-                                     message: "%{value} is not a valid sunniness value" },
-                        allow_nil: true,
-                        allow_blank: true
-
-  PLANTED_FROM_VALUES = [
-    'seed',
-    'seedling',
-    'cutting',
-    'root division',
-    'runner',
-    'bulb',
-    'root/tuber',
-    'bare root plant',
-    'advanced plant',
-    'graft',
-    'layering'
-  ]
-  validates :planted_from, inclusion: { in: PLANTED_FROM_VALUES,
-                                        message: "%{value} is not a valid planting method" },
-                           allow_nil: true,
-                           allow_blank: true
-
+  ##
+  ## Validations
+  validates :garden, presence: true
+  validates :crop, presence: true, approved: { message: "must be present and exist in our database" }
   validate :finished_must_be_after_planted
+  validate :owner_must_match_garden_owner
+  validates :quantity, allow_nil: true, numericality: {
+    only_integer: true, greater_than_or_equal_to: 0
+  }
+  validates :sunniness, allow_nil: true, allow_blank: true, inclusion: {
+    in: SUNNINESS_VALUES, message: "%<value>s is not a valid sunniness value"
+  }
+  validates :planted_from, allow_nil: true, allow_blank: true, inclusion: {
+    in: PLANTED_FROM_VALUES, message: "%<value>s is not a valid planting method"
+  }
+
+  def planting_slug
+    [
+      owner.login_name,
+      garden.present? ? garden.name : 'null',
+      crop.present? ? crop.name : 'null'
+    ].join('-').tr(' ', '-').downcase
+  end
+
+  # location = garden owner + garden name, i.e. "Skud's backyard"
+  def location
+    I18n.t("gardens.location", garden: garden.name, owner: garden.owner.login_name)
+  end
+
+  # stringify as "beet in Skud's backyard" or similar
+  def to_s
+    I18n.t('plantings.string', crop: crop.name, garden: garden.name, owner: owner)
+  end
+
+  def default_photo
+    photos.order(created_at: :desc).first
+  end
+
+  def planted?
+    planted_at.present? && planted_at <= Date.current
+  end
+
+  def finish_predicted_at
+    planted_at + crop.median_lifespan.days if crop.median_lifespan.present? && planted_at.present?
+  end
+
+  def calculate_lifespan
+    self.lifespan = (planted_at.present? && finished_at.present? ? finished_at - planted_at : nil)
+  end
+
+  def expected_lifespan
+    if planted_at.present? && finished_at.present?
+      return (finished_at - planted_at).to_i
+    end
+    crop.median_lifespan
+  end
+
+  def days_since_planted
+    (Time.zone.today - planted_at).to_i if planted_at.present?
+  end
+
+  def percentage_grown
+    return 100 if finished
+    return if planted_at.blank? || expected_lifespan.blank?
+    p = (days_since_planted / expected_lifespan.to_f) * 100
+    return p if p <= 100
+    100
+  end
+
+  def update_harvest_days
+    days_to_first_harvest = nil
+    days_to_last_harvest = nil
+    if planted_at.present? && harvests_with_dates.size.positive?
+      days_to_first_harvest = (first_harvest_date - planted_at).to_i
+      days_to_last_harvest = (last_harvest_date - planted_at).to_i if finished?
+    end
+    update(days_to_first_harvest: days_to_first_harvest, days_to_last_harvest: days_to_last_harvest)
+  end
+
+  def first_harvest_date
+    harvests_with_dates.minimum(:harvested_at)
+  end
+
+  def last_harvest_date
+    harvests_with_dates.maximum(:harvested_at)
+  end
+
+  private
+
+  def harvests_with_dates
+    harvests.where.not(harvested_at: nil)
+  end
 
   # check that any finished_at date occurs after planted_at
   def finished_must_be_after_planted
@@ -62,80 +142,7 @@ class Planting < ActiveRecord::Base
     errors.add(:finished_at, "must be after the planting date") unless planted_at < finished_at
   end
 
-  def planting_slug
-    "#{owner.login_name}-#{garden}-#{crop}".downcase.gsub(' ', '-')
-  end
-
-  # location = garden owner + garden name, i.e. "Skud's backyard"
-  def location
-    "#{garden.owner.login_name}'s #{garden}"
-  end
-
-  # stringify as "beet in Skud's backyard" or similar
-  def to_s
-    self.crop_name + " in " + self.location
-  end
-
-  def default_photo
-    photos.first
-  end
-
-  def interesting?
-    photos.present?
-  end
-
-  def calculate_days_before_maturity(planting, crop)
-    p_crop = Planting.where(crop_id: crop).where.not(id: planting)
-    differences = p_crop.collect do |p|
-      if p.finished && !p.finished_at.nil?
-        (p.finished_at - p.planted_at).to_i
-      end
-    end
-
-    if differences.compact.empty?
-      nil
-    else
-      differences.compact.sum / differences.compact.size
-    end
-  end
-
-  def planted?(current_date = Date.current)
-    planted_at.present? && current_date.to_date >= planted_at
-  end
-
-  def percentage_grown(current_date = Date.current)
-    return nil unless days_before_maturity && planted?(current_date)
-
-    days = (current_date.to_date - planted_at.to_date).to_i
-
-    return 0 if current_date < planted_at
-    return 100 if days > days_before_maturity
-    percent = (days / days_before_maturity * 100).to_i
-
-    if percent >= 100
-      percent = 100
-    end
-
-    percent
-  end
-
-  # return a list of interesting plantings, for the homepage etc.
-  # we can't do this via a scope (as far as we know) so sadly we have to
-  # do it this way.
-  def Planting.interesting(howmany = 12, require_photo = true)
-    interesting_plantings = []
-    seen_owners = Hash.new(false) # keep track of which owners we've seen already
-
-    Planting.includes(:photos).each do |p|
-      break if interesting_plantings.size == howmany # got enough yet?
-      if require_photo
-        next unless p.photos.present? # skip those without photos, if required
-      end
-      next if seen_owners[p.owner]  # skip if we already have one from this owner
-      seen_owners[p.owner] = true   # we've seen this owner
-      interesting_plantings.push(p)
-    end
-
-    interesting_plantings
+  def owner_must_match_garden_owner
+    errors.add(:owner, "must be the same as garden") unless owner == garden.owner
   end
 end

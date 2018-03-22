@@ -28,7 +28,7 @@ feature "crop wranglers", js: true do
       click_link wrangler.login_name
       click_link 'Crop Wrangling'
       within '#recently-added-crops' do
-        expect(page).to have_content "#{crops.first.creator.login_name}"
+        expect(page).to have_content crops.first.creator.login_name.to_s
       end
     end
 
@@ -48,7 +48,7 @@ feature "crop wranglers", js: true do
       fill_in 'en_wikipedia_url', with: "http://en.wikipedia.org/wiki/Maize"
       fill_in 'sci_name[1]', with: "planticus maximus"
       click_on 'Save'
-      expect(page).to have_content 'Crop was successfully created'
+      expect(page).to have_content 'crop was successfully created.'
       expect(page).to have_content 'planticus maximus'
     end
 

@@ -37,7 +37,7 @@ if ENV['GROWSTUFF_CAPYBARA_DRIVER'].present?
 end
 
 Capybara::Screenshot.register_filename_prefix_formatter(:rspec) do |example|
-  "screenshot_#{example.description.gsub(' ', '-').gsub(/^.*\/spec\//, '')}"
+  "screenshot_#{example.description.tr(' ', '-').gsub(/^.*\/spec\//, '')}"
 end
 
 Capybara.app_host = 'http://localhost'
@@ -99,8 +99,8 @@ RSpec.configure do |config|
   config.include Devise::Test::ControllerHelpers, type: :controller
   config.extend ControllerMacros, type: :controller
 
-  # Allow just create(:factory) instead of needing to specify FactoryGirl.create(:factory)
-  config.include FactoryGirl::Syntax::Methods
+  # Allow just create(:factory) instead of needing to specify FactoryBot.create(:factory)
+  config.include FactoryBot::Syntax::Methods
 
   # Prevent Poltergeist from fetching external URLs during feature tests
   config.before(:each, js: true) do
@@ -108,7 +108,7 @@ RSpec.configure do |config|
       'gravatar.com',
       'mapbox.com',
       'okfn.org',
-      'googlecode.com',
+      'googlecode.com'
     ] if page.driver.browser.respond_to?(:url_blacklist)
 
     page.driver.browser.manage.window.maximize if page.driver.browser.respond_to?(:manage)

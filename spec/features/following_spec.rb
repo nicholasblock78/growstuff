@@ -6,8 +6,8 @@ feature "follows", :js do
 
     scenario "follow buttons on member profile page" do
       visit member_path(member)
-      expect(page).to_not have_link "Follow"
-      expect(page).to_not have_link "Unfollow"
+      expect(page).not_to have_link "Follow"
+      expect(page).not_to have_link "Unfollow"
     end
   end
 
@@ -43,7 +43,7 @@ feature "follows", :js do
       scenario "has a followed member listed in the following page" do
         click_link 'Follow'
         visit member_follows_path(member)
-        expect(page).to have_content "#{other_member.login_name}"
+        expect(page).to have_content other_member.login_name.to_s
       end
 
       scenario "does not die when passed an authenticity_token" do
@@ -62,22 +62,22 @@ feature "follows", :js do
       scenario "has member in following list" do
         click_link 'Follow'
         visit member_follows_path(member)
-        expect(page).to have_content "#{other_member.login_name}"
+        expect(page).to have_content other_member.login_name.to_s
       end
 
       scenario "appears in in followed member's followers list" do
         click_link 'Follow'
         visit member_followers_path(other_member)
-        expect(page).to have_content "#{member.login_name}"
+        expect(page).to have_content member.login_name.to_s
       end
 
       scenario "removes members from following and followers lists after unfollow" do
         click_link 'Follow'
         click_link 'Unfollow'
         visit member_follows_path(member)
-        expect(page).not_to have_content "#{other_member.login_name}"
+        expect(page).not_to have_content other_member.login_name.to_s
         visit member_followers_path(other_member)
-        expect(page).to have_content "#{member.login_name}"
+        expect(page).to have_content member.login_name.to_s
       end
     end
   end

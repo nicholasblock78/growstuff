@@ -6,9 +6,9 @@ Growstuff::Application.configure do
   # preloads Rails for running tests, you may have to set it to true.
   config.eager_load = false
 
-  # Do not compile assets on-demand. On-demand compilation slows down the test
-  # suite and causes random test failures.
-  config.assets.compile = false
+  # Allow lazy compilation of assets. Required for running Jasmine tests via
+  # `rake spec:javascript`.
+  config.assets.compile = true
 
   # The test environment is used exclusively to run your application's
   # test suite. You never need to work with it otherwise. Remember that
@@ -51,13 +51,6 @@ Growstuff::Application.configure do
     config.analytics_code = ''
     config.currency = 'AUD'
   end
-
-  config.after_initialize do
-    require "active_merchant/ext/paypal_bogus_gateway"
-    ActiveMerchant::Billing::Base.mode = :test
-    ::STANDARD_GATEWAY = ActiveMerchant::Billing::PaypalBogusGateway.new
-    ::EXPRESS_GATEWAY = ActiveMerchant::Billing::PaypalBogusGateway.new
-  end
 end
 
 Geocoder.configure(lookup: :test)
@@ -66,7 +59,7 @@ Geocoder::Lookup::Test.add_stub(
   "Amundsen-Scott Base, Antarctica", [
     {
       'latitude' =>         -90.0,
-      'longitude' =>        0.0,
+      'longitude' =>        0.0
     }
   ]
 )
@@ -89,7 +82,7 @@ Geocoder::Lookup::Test.add_stub(
   "Greenwich, UK", [
     {
       'latitude' =>         51.483061,
-      'longitude' =>        -0.004151,
+      'longitude' =>        -0.004151
     }
   ]
 )
@@ -98,7 +91,7 @@ Geocoder::Lookup::Test.add_stub(
   "Edinburgh", [
     {
       'latitude' =>         55.953252,
-      'longitude' =>        -3.188267,
+      'longitude' =>        -3.188267
     }
   ]
 )
@@ -112,17 +105,15 @@ end
 
 OmniAuth.config.test_mode = true
 # Fake the omniauth
-OmniAuth.config.mock_auth[:facebook] = OmniAuth::AuthHash.new({
-                                                                provider: 'facebook',
-                                                                uid: '123545',
-                                                                info: {
-                                                                  name: "John Testerson",
-                                                                  nickname: 'JohnnyT',
-                                                                  email: 'example.oauth.facebook@example.com',
-                                                                  image: 'http://findicons.com/files/icons/1072/face_avatars/300/i04.png'
-                                                                },
-                                                                credentials: {
-                                                                  token: "token",
-                                                                  secret: "donttell"
-                                                                }
+OmniAuth.config.mock_auth[:facebook] = OmniAuth::AuthHash.new(provider: 'facebook',
+                                                              uid: '123545',
+                                                              info: {
+                                                                name: "John Testerson",
+                                                                nickname: 'JohnnyT',
+                                                                email: 'example.oauth.facebook@example.com',
+                                                                image: 'http://findicons.com/files/icons/1072/face_avatars/300/i04.png'
+                                                              },
+                                                              credentials: {
+                                                                token: "token",
+                                                                secret: "donttell"
                                                               })

@@ -15,3 +15,5 @@ custom_plan.rb
 zeus.json
 .bundle
 .idea/**
+public/**
+node_modules

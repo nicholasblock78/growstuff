@@ -8,7 +8,11 @@
   = tag("meta", property: "og:site_name", content: ENV['GROWSTUFF_SITE_NAME'])
 
 .row
-  .col-md-6
+  .col-md-8
+    %p= image_tag(@photo.fullsize_url, alt: @photo.title, class: 'img img-responsive')
+
+  .col-md-4
+    = render 'photos/actions', photo: @photo
     %p
       %strong Posted by:
       = link_to @photo.owner, @photo.owner
@@ -19,28 +23,7 @@
       - else
         = succeed "." do
           = @photo.license_name
-    %p
-      = link_to "View on Flickr", @photo.link_url
 
-    - if can? :destroy, @photo
-      %p= link_to 'Delete Photo', @photo, method: :delete, data: { confirm: 'Are you sure?' }, :class => 'btn btn-default btn-xs'
-
-  .col-md-6
-    - if @photo.plantings.size > 0 or @photo.harvests.size > 0 or @photo.gardens.size > 0
-      %p This photo depicts:
-      %ul
-        - if @photo.plantings.size > 0
-          - @photo.plantings.each do |p|
-            %li= link_to t('.thing_by', thing: Planting.model_name.singular, owner: p.owner), p
-        - if @photo.harvests.size > 0
-          - @photo.harvests.each do |h|
-            %li= link_to t('.thing_by', thing: Harvest.model_name.singular, owner: h.owner), h
-        - if @photo.gardens.size > 0
-          - @photo.gardens.each do |g|
-            %li= link_to t('.thing_by', thing: Garden.model_name.singular, owner: g.owner), g
-
-
-.row
-  .col-md-12
-    %p= image_tag(@photo.fullsize_url, :alt => @photo.title, :class => 'img')
-
+    %p= link_to "View on Flickr", @photo.link_url
+    - if @photo.associations?
+      = render "photo_associations", locals: { photo: @photo }

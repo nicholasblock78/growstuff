@@ -1,96 +1,98 @@
 class HarvestsController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :show]
+  before_action :authenticate_member!, except: %i(index show)
+  after_action :update_crop_medians, only: %i(create update destroy)
   load_and_authorize_resource
+  respond_to :html, :json
+  respond_to :csv, only: :index
+  responders :flash
 
-  # GET /harvests
-  # GET /harvests.json
   def index
-    @owner = Member.find_by(slug: params[:owner])
-    @crop = Crop.find_by(slug: params[:crop])
-    @harvests = if @owner
-                  @owner.harvests.includes(:owner, :crop)
-                elsif @crop
-                  @crop.harvests.includes(:owner, :crop)
-                else
-                  Harvest.includes(:owner, :crop)
-                end
+    @owner = Member.find_by(slug: params[:owner]) if params[:owner]
+    @crop = Crop.find_by(slug: params[:crop]) if params[:crop]
+    @planting = Planting.find_by(slug: params[:planting_id]) if params[:planting_id]
 
-    respond_to do |format|
-      format.html { @harvests = @harvests.paginate(page: params[:page]) }
-      format.json { render json: @harvests }
-      format.csv do
-        specifics = (@owner ? "#{@owner.login_name}-" : @crop ? "#{@crop.name}-" : nil)
-        @filename = "Growstuff-#{specifics}Harvests-#{Time.zone.now.to_s(:number)}.csv"
-        render csv: @harvests
-      end
-    end
+    @harvests = harvests
+    @filename = csv_filename
+    respond_with(@harvests)
   end
 
-  # GET /harvests/new
-  # GET /harvests/new.json
+  def show
+    @matching_plantings = matching_plantings if @harvest.owner == current_member
+    @photos = @harvest.photos.order(created_at: :desc).paginate(page: params[:page])
+    respond_with(@harvest)
+  end
+
   def new
-    @harvest = Harvest.new('harvested_at' => Date.today)
-
-    # using find_by_id here because it returns nil, unlike find
-    @crop = Crop.find_or_initialize_by(id: params[:crop_id])
-
-    respond_to do |format|
-      format.html # new.html.erb
-      format.json { render json: @harvest }
-    end
+    @harvest = Harvest.new(harvested_at: Time.zone.today)
+    @planting = Planting.find_by(slug: params[:planting_id]) if params[:planting_id]
+    @crop = Crop.find_by(id: params[:crop_id])
+    respond_with(@harvest)
   end
 
-  # GET /harvests/1/edit
   def edit
+    @planting = @harvest.planting if @harvest.planting_id
   end
 
-  # POST /harvests
-  # POST /harvests.json
   def create
-    params[:harvest][:owner_id] = current_member.id
-    params[:harvested_at] = parse_date(params[:harvested_at])
-    @harvest = Harvest.new(harvest_params)
-
-    respond_to do |format|
-      if @harvest.save
-        format.html { redirect_to @harvest, notice: 'Harvest was successfully created.' }
-        format.json { render json: @harvest, status: :created, location: @harvest }
-      else
-        format.html { render action: "new" }
-        format.json { render json: @harvest.errors, status: :unprocessable_entity }
-      end
-    end
+    @harvest.crop_id = @harvest.planting.crop_id if @harvest.planting_id
+    @harvest.harvested_at = Time.zone.now if @harvest.harvested_at.blank?
+    @harvest.save
+    respond_with(@harvest)
   end
 
-  # PUT /harvests/1
-  # PUT /harvests/1.json
   def update
-    respond_to do |format|
-      if @harvest.update(harvest_params)
-        format.html { redirect_to @harvest, notice: 'Harvest was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @harvest.errors, status: :unprocessable_entity }
-      end
-    end
+    @harvest.update(harvest_params)
+    respond_with(@harvest)
   end
 
-  # DELETE /harvests/1
-  # DELETE /harvests/1.json
   def destroy
     @harvest.destroy
-
-    respond_to do |format|
-      format.html { redirect_to harvests_url }
-      format.json { head :no_content }
-    end
+    respond_with(@harvest)
   end
 
   private
 
   def harvest_params
-    params.require(:harvest).permit(:crop_id, :harvested_at, :description, :owner_id,
-      :quantity, :unit, :weight_quantity, :weight_unit, :plant_part_id, :slug, :si_weight)
+    params.require(:harvest)
+      .permit(:planting_id, :crop_id, :harvested_at, :description,
+        :quantity, :unit, :weight_quantity, :weight_unit,
+        :plant_part_id, :slug, :si_weight)
+      .merge(owner_id: current_member.id)
+  end
+
+  def matching_plantings
+    Planting.where(crop: @harvest.crop, owner: @harvest.owner)
+      .where('(planted_at IS NULL OR planted_at <= ?)', @harvest.harvested_at)
+      .where('(finished_at IS NULL OR finished_at >= ?)', @harvest.harvested_at)
+  end
+
+  def harvests
+    if @owner
+      @owner.harvests
+    elsif @crop
+      @crop.harvests
+    elsif @planting
+      @planting.harvests
+    else
+      Harvest.all
+    end.order(harvested_at: :desc).joins(:owner, :crop).paginate(page: params[:page])
+  end
+
+  def csv_filename
+    specifics = if @owner
+                  "#{@owner.login_name}-"
+                elsif @crop
+                  "#{@crop.name}-"
+                end
+    "Growstuff-#{specifics}Harvests-#{Time.zone.now.to_s(:number)}.csv"
+  end
+
+  def update_crop_medians
+    # We only update medians to predict plantings
+    # if this harvest is not linked to a planting, then do nothing
+    return if @harvest.planting.nil?
+
+    @harvest.planting.update_harvest_days
+    @harvest.crop.update_harvest_medians
   end
 end

@@ -1,18 +1,6 @@
 module PlantingsHelper
-  def display_days_before_maturity(planting)
-    if planting.finished?
-      "0"
-    elsif !planting.finished_at.nil?
-      ((p = planting.finished_at - Date.current).to_i) <= 0 ? "0" : p.to_i.to_s
-    elsif planting.planted_at.nil? || planting.days_before_maturity.nil?
-      "unknown"
-    else
-      ((p = (planting.planted_at + planting.days_before_maturity) - Date.current).to_i <= 0) ? "0" : p.to_i.to_s
-    end
-  end
-
   def display_finished(planting)
-    if !planting.finished_at.nil?
+    if planting.finished_at.present?
       planting.finished_at
     elsif planting.finished
       "Yes (no date specified)"
@@ -22,11 +10,11 @@ module PlantingsHelper
   end
 
   def display_planted_from(planting)
-    !planting.planted_from.blank? ? planting.planted_from : "not specified"
+    planting.planted_from.present? ? planting.planted_from : "not specified"
   end
 
   def display_planting_quantity(planting)
-    !planting.quantity.blank? ? planting.quantity : "not specified"
+    planting.quantity.present? ? planting.quantity : "not specified"
   end
 
   def display_planting(planting)
@@ -39,5 +27,9 @@ module PlantingsHelper
     else
       "#{planting.owner}."
     end
+  end
+
+  def plantings_active_tickbox_path(owner, show_all)
+    show_inactive_tickbox_path('plantings', owner, show_all)
   end
 end
