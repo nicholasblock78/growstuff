@@ -1,130 +1,141 @@
-class PlantingsController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :show]
-  load_and_authorize_resource
+# frozen_string_literal: true
 
-  # GET /plantings
-  # GET /plantings.json
+class PlantingsController < DataController
+  after_action :update_crop_medians, only: %i(create update destroy)
+  after_action :update_planting_medians, only: :update
+
   def index
-    @owner = Member.find_by(slug: params[:owner])
-    @crop = Crop.find_by(slug: params[:crop])
-    @plantings = if @owner
-                   @owner.plantings.includes(:owner, :crop, :garden).paginate(page: params[:page])
-                 elsif @crop
-                   @crop.plantings.includes(:owner, :crop, :garden).paginate(page: params[:page])
-                 else
-                   Planting.includes(:owner, :crop, :garden).paginate(page: params[:page])
-                 end
+    @show_all = params[:all] == '1'
 
-    respond_to do |format|
-      format.html { @plantings = @plantings.paginate(page: params[:page]) }
-      format.json { render json: @plantings }
-      format.rss { render layout: false } # index.rss.builder
-      format.csv do
-        specifics = (@owner ? "#{@owner.login_name}-" : @crop ? "#{@crop.name}-" : nil)
-        @filename = "Growstuff-#{specifics}Plantings-#{Time.zone.now.to_s(:number)}.csv"
-        render csv: @plantings
-      end
+    where = {}
+    where['active'] = true unless @show_all
+
+    if params[:member_slug]
+      @owner = Member.find_by(slug: params[:member_slug])
+      where['owner_id'] = @owner.id
     end
+
+    if params[:crop_slug]
+      @crop = Crop.find_by(slug: params[:crop_slug])
+      where['crop_id'] = @crop.id
+    end
+
+    @plantings = Planting.search(
+      where:    where,
+      page:     params[:page],
+      limit:    30,
+      boost_by: [:created_at],
+      load:     false
+    )
+
+    @filename = "Growstuff-#{specifics}Plantings-#{Time.zone.now.to_s(:number)}.csv"
+
+    respond_with(@plantings)
   end
 
-  # GET /plantings/1
-  # GET /plantings/1.json
   def show
-    @planting = Planting.includes(:owner, :crop, :garden, :photos).friendly.find(params[:id])
+    @photos = @planting.photos.includes(:owner).order(date_taken: :desc)
+    @harvests = Harvest.search(where: { planting_id: @planting.id })
+    @matching_seeds = matching_seeds
+    @crop = @planting.crop
 
-    respond_to do |format|
-      format.html # show.html.erb
-      format.json { render json: @planting }
-    end
+    # TODO: use elastic search long/lat
+    @neighbours = @planting.nearby_same_crop
+      .where.not(id: @planting.id)
+      .includes(:owner, :crop, :garden)
+      .limit(6)
+    respond_with @planting
   end
 
-  # GET /plantings/new
-  # GET /plantings/new.json
   def new
-    @planting = Planting.new('planted_at' => Date.today)
-
-    # using find_by_id here because it returns nil, unlike find
-    @crop     = Crop.find_by(id: params[:crop_id])     || Crop.new
-    @garden   = Garden.find_by(id: params[:garden_id]) || Garden.new
-
-    respond_to do |format|
-      format.html # new.html.erb
-      format.json { render json: @planting }
+    @planting = Planting.new(
+      planted_at: Time.zone.today,
+      owner:      current_member,
+      garden:     current_member.gardens.first
+    )
+    @seed = Seed.find_by(slug: params[:seed_id]) if params[:seed_id]
+    @crop = Crop.approved.find_by(id: params[:crop_id]) || Crop.new
+    if params[:garden_id]
+      @planting.garden = Garden.find_by(
+        owner: current_member,
+        id:    params[:garden_id]
+      )
     end
+
+    respond_with @planting
   end
 
-  # GET /plantings/1/edit
   def edit
     # the following are needed to display the form but aren't used
-    @crop     = Crop.new
-    @garden   = Garden.new
+    @crop = Crop.new
+    @gardens = @planting.owner.gardens.active.order_by_name
   end
 
-  # POST /plantings
-  # POST /plantings.json
   def create
-    params[:planted_at] = parse_date(params[:planted_at])
     @planting = Planting.new(planting_params)
+    @planting.planted_at = Time.zone.now if @planting.planted_at.blank?
     @planting.owner = current_member
-
-    respond_to do |format|
-      if @planting.save
-        @planting.update_attribute(:days_before_maturity,
-          update_days_before_maturity(@planting, planting_params[:crop_id]))
-        format.html { redirect_to @planting, notice: 'Planting was successfully created.' }
-        format.json { render json: @planting, status: :created, location: @planting }
-        expire_fragment("homepage_stats")
-      else
-        format.html { render action: "new" }
-        format.json { render json: @planting.errors, status: :unprocessable_entity }
-      end
-    end
+    @planting.crop = @planting.parent_seed.crop if @planting.parent_seed.present?
+    @planting.save
+    respond_with @planting
   end
 
-  # PUT /plantings/1
-  # PUT /plantings/1.json
   def update
-    params[:planted_at] = parse_date(params[:planted_at])
-
-    respond_to do |format|
-      if @planting.update(planting_params)
-        @planting.update_attribute(:days_before_maturity,
-          update_days_before_maturity(@planting, planting_params[:crop_id]))
-        format.html { redirect_to @planting, notice: 'Planting was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @planting.errors, status: :unprocessable_entity }
-      end
-    end
+    @planting.update(planting_params)
+    respond_with @planting
   end
 
-  # DELETE /plantings/1
-  # DELETE /plantings/1.json
   def destroy
-    @garden = @planting.garden
     @planting.destroy
-    expire_fragment("homepage_stats")
-
-    respond_to do |format|
-      format.html { redirect_to @garden }
-      format.json { head :no_content }
-    end
+    respond_with @planting, location: @planting.garden
   end
 
   private
 
-  def planting_params
-    params.require(:planting).permit(:crop_id, :description, :garden_id, :planted_at,
-      :quantity, :sunniness, :planted_from, :owner_id, :finished,
-      :finished_at)
+  def update_crop_medians
+    @planting.crop.update_lifespan_medians if @planting.crop.present?
   end
 
-  def update_days_before_maturity(planting, crop_id)
-    if planting.finished_at.nil?
-      planting.calculate_days_before_maturity(planting, crop_id)
-    else
-      (planting.finished_at - planting.planted_at).to_i
+  def update_planting_medians
+    @planting.update_harvest_days!
+  end
+
+  def planting_params
+    params[:planted_at] = parse_date(params[:planted_at]) if params[:planted_at]
+    params.require(:planting).permit(
+      :crop_id, :description, :garden_id, :planted_at,
+      :parent_seed_id,
+      :quantity, :sunniness, :planted_from, :finished,
+      :finished_at
+    )
+  end
+
+  def plantings
+    p = if @owner
+          @owner.plantings
+        elsif @crop
+          @crop.plantings
+        else
+          Planting
+        end
+    p = p.current unless @show_all
+    p.joins(:owner, :crop, :garden)
+      .order(created_at: :desc)
+      .includes(:crop, :owner, :garden)
+      .paginate(page: params[:page])
+  end
+
+  def matching_seeds
+    Seed.where(crop: @planting.crop, owner: @planting.owner)
+      .where('(finished_at IS NULL OR finished_at >= ?)', @planting.planted_at)
+      .where('(saved_at IS NULL OR saved_at <= ?)', @planting.planted_at)
+  end
+
+  def specifics
+    if @owner.present?
+      "#{@owner.to_param}-"
+    elsif @crop.present?
+      "#{@crop.to_param}-"
     end
   end
 end

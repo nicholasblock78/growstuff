@@ -7,38 +7,43 @@
   = tag("meta", property: "og:url", content: request.original_url)
   = tag("meta", property: "og:site_name", content: ENV['GROWSTUFF_SITE_NAME'])
 
-.row
-  .col-md-6
+- content_for :breadcrumbs do
+  %li.breadcrumb-item= link_to 'Photos', photos_path
+  %li.breadcrumb-item.active= link_to @photo, @photo
+
+.row{id: "photo-#{@photo.id}"}
+  .col-md-9
+    %section.photo
+      %h2.text-center.ellipsis
+        = photo_icon
+        = @photo.title
+
+      %p.text-center
+        = image_tag(@photo.fullsize_url, alt: @photo.title, class: 'rounded img-responsive shadow-sm')
+
+
+    - if @crops.size.positive?
+      .index-cards
+        - @crops.each do |crop|
+          = render 'crops/thumbnail', crop: crop
+  .col-md-3
     %p
-      %strong Posted by:
-      = link_to @photo.owner, @photo.owner
+      = render 'photos/actions', photo: @photo
+      = link_to @photo.link_url, class: 'btn btn-info' do
+        - if @photo.source == 'flickr'
+          = icon 'fab', 'flickr'
+        View on #{@photo.source.titleize}
+      %span.btn= render 'photos/likes', photo: @photo
+      - if @photo.date_taken.present?
+        %h3 Taken on #{I18n.l @photo.date_taken.to_date}
+
+    = render @photo.owner
+
     %p
       %strong License:
       - if @photo.license_url
         = link_to @photo.license_name, @photo.license_url
       - else
-        = succeed "." do
-          = @photo.license_name
-    %p
-      = link_to "View on Flickr", @photo.link_url
+        = @photo.license_name
 
-    - if can? :destroy, @photo
-      %p= link_to 'Delete Photo', @photo, method: :delete, data: { confirm: 'Are you sure?' }, :class => 'btn btn-default btn-xs'
-
-  .col-md-6
-    - unless @photo.plantings.empty? && @photo.harvests.empty? && @photo.gardens.empty? && @photo.seeds.empty?
-      %p This photo depicts:
-      %ul
-        - @photo.plantings.each do |p|
-          %li= link_to t('.planting', planting: p.to_s, owner: p.owner.to_s), planting_path(p)
-        - @photo.harvests.each do |h|
-          %li= link_to t('.harvest', crop: h.crop.name, owner: h.owner.to_s), harvest_path(h)
-        - @photo.gardens.each do |g|
-          %li= link_to t('.garden', garden: g.to_s, owner: g.owner.to_s), garden_path(g)
-        - @photo.seeds.each do |s|
-          %li= link_to t('.seed', seed: s.to_s, owner: s.owner.to_s), seed_path(s)
-
-.row
-  .col-md-12
-    %p= image_tag(@photo.fullsize_url, :alt => @photo.title, :class => 'img')
-
+    = render "associations", photo: @photo

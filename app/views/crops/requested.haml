@@ -1,0 +1,14 @@
+- content_for :title, t('crops.requested.title')
+- content_for :subtitle, t('crops.requested.subtitle', crops_size: @crops.size)
+
+%p Crops you have requested
+
+.pagination
+  = will_paginate @requested
+
+.index-cards
+  - @requested.each do |crop|
+    = render partial: "thumbnail", locals: { crop: crop }
+
+.pagination
+  = will_paginate @requested

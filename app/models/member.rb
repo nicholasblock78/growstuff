@@ -1,264 +1,161 @@
-class Member < ActiveRecord::Base
+# frozen_string_literal: true
+
+class Member < ApplicationRecord
+  include Discard::Model
+  acts_as_messageable # messages can be sent to this model
   include Geocodable
+  include MemberFlickr
+  include MemberNewsletter
+
   extend FriendlyId
+  friendly_id :login_name, use: %i(slugged finders)
 
-  friendly_id :login_name, use: [:slugged, :finders]
-
-  has_many :posts, foreign_key: 'author_id'
-  has_many :comments, foreign_key: 'author_id'
-  has_many :forums, foreign_key: 'owner_id'
-
-  has_many :gardens, foreign_key: 'owner_id'
-  has_many :plantings, foreign_key: 'owner_id'
-
-  has_many :seeds, foreign_key: 'owner_id'
-  has_many :harvests, foreign_key: 'owner_id'
-
+  #
+  # Relationships
+  has_many :posts, foreign_key: 'author_id', dependent: :destroy, inverse_of: :author
+  has_many :comments, foreign_key: 'author_id', dependent: :destroy, inverse_of: :author
+  has_many :forums, foreign_key: 'owner_id', dependent: :nullify, inverse_of: :owner
+  has_many :gardens, foreign_key: 'owner_id', dependent: :destroy, inverse_of: :owner
+  has_many :plantings, foreign_key: 'owner_id', dependent: :destroy, inverse_of: :owner
+  has_many :seeds, foreign_key: 'owner_id', dependent: :destroy, inverse_of: :owner
+  has_many :harvests, foreign_key: 'owner_id', dependent: :destroy, inverse_of: :owner
   has_and_belongs_to_many :roles
+  has_many :notifications, foreign_key: 'recipient_id', inverse_of: :recipient
+  has_many :sent_notifications, foreign_key: 'sender_id', inverse_of: :sender
+  has_many :authentications, dependent: :destroy
+  has_many :photos, inverse_of: :owner
+  has_many :likes, dependent: :destroy
 
-  has_many :notifications, foreign_key: 'recipient_id'
-  has_many :sent_notifications, foreign_key: 'sender_id'
-
-  has_many :authentications
-
-  has_many :orders
-  has_one  :account
-  has_one  :account_type, through: :account
-
-  has_many :photos
-
-  default_scope { order("lower(login_name) asc") }
-  scope :confirmed, -> { where('confirmed_at IS NOT NULL') }
-  scope :located, -> { where("location <> '' and latitude IS NOT NULL and longitude IS NOT NULL") }
-  scope :recently_signed_in, -> { reorder('updated_at DESC') }
-  scope :recently_joined, -> { reorder("confirmed_at desc") }
-  scope :wants_newsletter, -> { where(newsletter: true) }
-
-  has_many :follows, class_name: "Follow", foreign_key: "follower_id"
+  #
+  # Following other members
+  has_many :follows, class_name: "Follow", foreign_key: "follower_id", dependent: :destroy,
+                     inverse_of: :follower
+  has_many :inverse_follows, class_name: "Follow", foreign_key: "followed_id",
+                             dependent: :destroy, inverse_of: :followed
   has_many :followed, through: :follows
-
-  has_many :inverse_follows, class_name: "Follow", foreign_key: "followed_id"
   has_many :followers, through: :inverse_follows, source: :follower
+
+  #
+  # Global data records this member created
+  has_many :requested_crops, class_name: 'Crop', foreign_key: 'requester_id', dependent: :nullify,
+                             inverse_of: :requester
+  has_many :created_crops, class_name: 'Crop', foreign_key: 'creator_id', dependent: :nullify,
+                           inverse_of: :creator
+  has_many :created_alternate_names, class_name: 'AlternateName', foreign_key: 'creator_id', inverse_of: :creator
+  has_many :created_scientific_names, class_name: 'ScientificName', foreign_key: 'creator_id', inverse_of: :creator
+
+  #
+  # Scopes
+  scope :confirmed, -> { where.not(confirmed_at: nil) }
+  scope :located, -> { where.not(location: '').where.not(latitude: nil).where.not(longitude: nil) }
+  scope :recently_signed_in, -> { reorder(updated_at: :desc) }
+  scope :recently_joined, -> { reorder(confirmed_at: :desc) }
+  scope :interesting, -> { confirmed.located.recently_signed_in.has_plantings }
+  scope :has_plantings, -> { joins(:plantings).group("members.id") }
+  scope :wants_reminders, -> { where(send_planting_reminder: true) }
 
   # Include default devise modules. Others available are:
   # :token_authenticatable, :confirmable,
   # :lockable, :timeoutable and :omniauthable
   devise :database_authenticatable, :registerable,
-    :recoverable, :rememberable, :trackable, :validatable,
-    :confirmable, :lockable, :timeoutable, :omniauthable
+         :recoverable, :rememberable, :trackable, :validatable,
+         :confirmable, :lockable, :timeoutable, :omniauthable
+
+  # discarded (deleted) member cannot log in
+  def active_for_authentication?
+    super && !discarded?
+  end
 
   # set up geocoding
   geocoded_by :location
-  after_validation :geocode
-  after_validation :empty_unwanted_geocodes
 
   # Virtual attribute for authenticating by either username or email
   # This is in addition to a real persisted field like 'username'
   attr_accessor :login
 
+  #
+  # Validations
   # Requires acceptance of the Terms of Service
-  validates_acceptance_of :tos_agreement, allow_nil: true,
-                                          accept: true
-
+  validates :tos_agreement, acceptance: { allow_nil: true, accept: true }
   validates :login_name,
-    length: {
-      minimum: 2,
-      maximum: 25,
-      message: "should be between 2 and 25 characters long"
-    },
-    exclusion: {
-      in: %w(growstuff admin moderator staff nearby),
-      message: "name is reserved"
-    },
-    format: {
-      with: /\A\w+\z/,
-      message: "may only include letters, numbers, or underscores"
-    },
-    uniqueness: {
-      case_sensitive: false
-    }
+            length:     {
+              minimum: 2, maximum: 25, message: "should be between 2 and 25 characters long"
+            },
+            exclusion:  {
+              in: %w(growstuff admin moderator staff nearby), message: "name is reserved"
+            },
+            format:     {
+              with: /\A\w+\z/, message: "may only include letters, numbers, or underscores"
+            },
+            uniqueness: {
+              case_sensitive: false
+            }
+
+  #
+  # Triggers
+  after_validation :geocode
+  after_validation :empty_unwanted_geocodes
 
   # Give each new member a default garden
-  after_create { |member| Garden.create(name: "Garden", owner_id: member.id) }
-
-  # and an account record (for paid accounts etc)
   # we use find_or_create to avoid accidentally creating a second one,
-  # which can happen sometimes especially with FactoryGirl associations
-  after_create { |member| Account.find_or_create_by(member_id: member.id) }
-
-  after_save :update_newsletter_subscription
+  # which can happen sometimes especially with FactoryBot associations
+  after_create { |member| Garden.create(name: "Garden", owner_id: member.id) }
 
   # allow login via either login_name or email address
   def self.find_first_by_auth_conditions(warden_conditions)
     conditions = warden_conditions.dup
     login = conditions.delete(:login)
     return  where(conditions).login_name_or_email(login).first if login
+
     find_by(conditions)
   end
 
   def to_s
-    login_name
+    discarded? ? 'deleted' : login_name
   end
 
-  def has_role?(role_sym)
+  def to_param
+    slug
+  end
+
+  def mailboxer_email(_messageable)
+    send_notification_email ? email : false
+  end
+
+  def role?(role_sym)
     roles.any? { |r| r.name.gsub(/\s+/, "_").underscore.to_sym == role_sym }
-  end
-
-  def current_order
-    orders.find_by(completed_at: nil)
-  end
-
-  # when purchasing a product that gives you a paid account, this method
-  # does all the messing around to actually make sure the account is
-  # updated correctly -- account type, paid until, etc.  Usually this is
-  # called by order.update_account, which loops through all order items
-  # and does this for each one.
-  def update_account_after_purchase(product)
-    if product.account_type
-      account.account_type = product.account_type
-    end
-    if product.paid_months
-      start_date = account.paid_until || Time.zone.now
-      account.paid_until = start_date + product.paid_months.months
-    end
-    account.save
-  end
-
-  def is_paid?
-    if account.account_type.is_permanent_paid
-      true
-    elsif account.account_type.is_paid && account.paid_until >= Time.zone.now
-      true
-    else
-      false
-    end
   end
 
   def auth(provider)
     authentications.find_by(provider: provider)
   end
 
-  # Authenticates against Flickr and returns an object we can use for subsequent api calls
-  def flickr
-    if @flickr.nil?
-      flickr_auth = auth('flickr')
-      if flickr_auth
-        FlickRaw.api_key = ENV['GROWSTUFF_FLICKR_KEY']
-        FlickRaw.shared_secret = ENV['GROWSTUFF_FLICKR_SECRET']
-        @flickr = FlickRaw::Flickr.new
-        @flickr.access_token = flickr_auth.token
-        @flickr.access_secret = flickr_auth.secret
-      end
-    end
-    @flickr
+  def unread_count
+    receipts.where(is_read: false).count
   end
 
-  # Fetches a collection of photos from Flickr
-  # Returns a [[page of photos], total] pair.
-  # Total is needed for pagination.
-  def flickr_photos(page_num = 1, set = nil)
-    result = if set
-               flickr.photosets.getPhotos(
-                 photoset_id: set,
-                 page: page_num,
-                 per_page: 30
-               )
-             else
-               flickr.people.getPhotos(
-                 user_id: 'me',
-                 page: page_num,
-                 per_page: 30
-               )
-             end
-    return [result.photo, result.total] if result
-    [[], 0]
-  end
-
-  # Returns a hash of Flickr photosets' ids and titles
-  def flickr_sets
-    sets = Hash.new
-    flickr.photosets.getList.each do |p|
-      sets[p.title] = p.id
-    end
-    sets
-  end
-
-  def interesting?
-    # we assume we're being passed something from
-    # Member.confirmed.located as those are required for
-    # interestingness, as well.
-    return true if plantings.present?
-    false
-  end
-
-  def Member.login_name_or_email(login)
+  def self.login_name_or_email(login)
     where(["lower(login_name) = :value OR lower(email) = :value", { value: login.downcase }])
   end
 
-  def Member.case_insensitive_login_name(login)
+  def self.case_insensitive_login_name(login)
     where(["lower(login_name) = :value", { value: login.downcase }])
   end
 
-  def Member.interesting
-    howmany = 12 # max number to find
-    interesting_members = []
-    Member.confirmed.located.recently_signed_in.each do |m|
-      break if interesting_members.size == howmany
-      if m.interesting?
-        interesting_members.push(m)
-      end
-    end
-    interesting_members
-  end
-
-  def Member.nearest_to(place)
+  def self.nearest_to(place)
     nearby_members = []
     if place
       latitude, longitude = Geocoder.coordinates(place, params: { limit: 1 })
-      if latitude && longitude
-        nearby_members = Member.located.sort_by { |x| x.distance_from([latitude, longitude]) }
-      end
+      nearby_members = Member.located.sort_by { |x| x.distance_from([latitude, longitude]) } if latitude && longitude
     end
     nearby_members
   end
 
-  def update_newsletter_subscription
-    if confirmed_at_changed? && newsletter # just signed up
-      newsletter_subscribe
-    elsif confirmed_at # i.e. after member's confirmed their account
-      if newsletter_changed? # edited member settings
-        if newsletter
-          newsletter_subscribe
-        else
-          newsletter_unsubscribe
-        end
-      end
-    end
-  end
-
-  def newsletter_subscribe(gb = Gibbon::API.new, testing = false)
-    return true if (Rails.env.test? && !testing)
-    gb.lists.subscribe({
-                         id: Growstuff::Application.config.newsletter_list_id,
-                         email: { email: email },
-                         merge_vars: { login_name: login_name },
-                         double_optin: false # they already confirmed their email with us
-                       })
-  end
-
-  def newsletter_unsubscribe(gb = Gibbon::API.new, testing = false)
-    return true if (Rails.env.test? && !testing)
-    gb.lists.unsubscribe({
-                           id: Growstuff::Application.config.newsletter_list_id,
-                           email: { email: email }
-                         })
-  end
-
   def already_following?(member)
-    self.follows.exists?(followed_id: member.id)
+    follows.exists?(followed_id: member.id)
   end
 
   def get_follow(member)
-    self.follows.find_by(followed_id: member.id) if already_following?(member)
+    follows.find_by(followed_id: member.id) if already_following?(member)
   end
 end

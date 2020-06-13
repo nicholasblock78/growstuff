@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 class RegistrationsController < Devise::RegistrationsController
   respond_to :json
 
@@ -35,10 +37,20 @@ class RegistrationsController < Devise::RegistrationsController
       render "edit"
     end
   end
+
+  def destroy
+    if @member.valid_password?(params.require(:member)[:current_password])
+      @member.discard
+      redirect_to root_path
+    else
+      @member.errors.add(:current_password, 'Incorrect password')
+      render "edit"
+    end
+  end
 end
 
 # check if we need the current password to update fields
-def needs_password?(member, params)
+def needs_password?(_member, params)
   params[:member][:password].present? ||
     params[:member][:password_confirmation].present?
 end

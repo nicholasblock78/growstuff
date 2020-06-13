@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 module GardensHelper
   def display_garden_description(garden)
     if garden.description.nil?
@@ -17,14 +19,16 @@ module GardensHelper
     if plantings.blank?
       "None"
     else
-      output = ""
-      plantings.first(2).each do |planting|
+      output = '<ul class="plantings">'
+      plantings.each do |planting|
         output += "<li>"
         output += planting.quantity.nil? ? "0 " : "#{planting.quantity} "
         output += link_to planting.crop.name, planting.crop
         output += ", planted on #{planting.planted_at}</li>"
       end
+      output += '</ul>'
       output.html_safe
+
     end
   end
 end

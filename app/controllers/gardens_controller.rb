@@ -1,96 +1,60 @@
-class GardensController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :show]
-  load_and_authorize_resource
+# frozen_string_literal: true
 
-  # GET /gardens
-  # GET /gardens.json
+class GardensController < DataController
   def index
-    @owner = Member.find_by(slug: params[:owner])
-    @gardens = if @owner
-                 @owner.gardens.paginate(page: params[:page])
-               else
-                 Garden.paginate(page: params[:page])
-               end
+    @owner = Member.find_by(slug: params[:member_slug])
+    @show_all = params[:all] == '1'
+    @show_jump_to = params[:member_slug].present? ? true : false
 
-    respond_to do |format|
-      format.html # index.html.erb
-      format.json { render json: @gardens }
-    end
+    @gardens = @gardens.includes(:owner)
+    @gardens = @gardens.active unless @show_all
+    @gardens = @gardens.where(owner: @owner) if @owner.present?
+    @gardens = @gardens.where.not(members: { confirmed_at: nil })
+      .order(:name).paginate(page: params[:page])
+    respond_with(@gardens)
   end
 
-  # GET /gardens/1
-  # GET /gardens/1.json
   def show
-    respond_to do |format|
-      format.html # show.html.erb
-      format.json { render json: @garden }
-    end
+    @current_plantings = @garden.plantings.current.includes(:crop, :owner).order(planted_at: :desc)
+    @finished_plantings = @garden.plantings.finished.includes(:crop)
+    @suggested_companions = Crop.approved.where(
+      id: CropCompanion.where(crop_a_id: @current_plantings.select(:crop_id)).select(:crop_b_id)
+    ).order(:name)
+    respond_with(@garden)
   end
 
-  # GET /gardens/new
-  # GET /gardens/new.json
   def new
     @garden = Garden.new
-
-    respond_to do |format|
-      format.html # new.html.erb
-      format.json { render json: @garden }
-    end
+    respond_with(@garden)
   end
 
-  # GET /gardens/1/edit
   def edit
+    respond_with(@garden)
   end
 
-  # POST /gardens
-  # POST /gardens.json
   def create
     @garden.owner_id = current_member.id
-
-    respond_to do |format|
-      if @garden.save
-        format.html { redirect_to @garden, notice: 'Garden was successfully created.' }
-        format.json { render json: @garden, status: :created, location: @garden }
-        expire_fragment("homepage_stats")
-      else
-        format.html { render action: "new" }
-        format.json { render json: @garden.errors, status: :unprocessable_entity }
-      end
-    end
+    flash[:notice] = I18n.t('gardens.created') if @garden.save
+    respond_with(@garden)
   end
 
-  # PUT /gardens/1
-  # PUT /gardens/1.json
   def update
-    respond_to do |format|
-      if @garden.update(garden_params)
-        format.html { redirect_to @garden, notice: 'Garden was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @garden.errors, status: :unprocessable_entity }
-      end
-    end
+    flash[:notice] = I18n.t('gardens.updated') if @garden.update(garden_params)
+    respond_with(@garden)
   end
 
-  # DELETE /gardens/1
-  # DELETE /gardens/1.json
   def destroy
     @garden.destroy
-    expire_fragment("homepage_stats")
-
-    respond_to do |format|
-      format.html do
-        redirect_to gardens_by_owner_path(owner: @garden.owner), notice: 'Garden was successfully deleted.'
-      end
-      format.json { head :no_content }
-    end
+    flash[:notice] = I18n.t('gardens.deleted')
+    redirect_to(member_gardens_path(@garden.owner))
   end
 
   private
 
   def garden_params
-    params.require(:garden).permit(:name, :slug, :owner_id, :description, :active,
-      :location, :latitude, :longitude, :area, :area_unit)
+    params.require(:garden).permit(
+      :name, :slug, :description, :active,
+      :location, :latitude, :longitude, :area, :area_unit, :garden_type_id
+    )
   end
 end

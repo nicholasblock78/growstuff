@@ -1,70 +1,65 @@
-class MembersController < ApplicationController
-  load_and_authorize_resource except: [:finish_signup, :unsubscribe, :view_follows, :view_followers, :show]
-  skip_authorize_resource only: [:nearby, :unsubscribe, :finish_signup]
+# frozen_string_literal: true
 
-  after_action :expire_cache_fragments, only: :create
+class MembersController < ApplicationController
+  load_and_authorize_resource except: %i(finish_signup unsubscribe view_follows view_followers show)
+  skip_authorize_resource only: %i(nearby unsubscribe finish_signup)
+  respond_to :html, :json, :rss
 
   def index
     @sort = params[:sort]
-    @members = if @sort == 'recently_joined'
-                 Member.confirmed.recently_joined.paginate(page: params[:page])
-               else
-                 Member.confirmed.paginate(page: params[:page])
-               end
-
+    @members = members
     respond_to do |format|
       format.html # index.html.haml
-      format.json {
-        render json: @members.to_json(only: [
-                                        :id, :login_name,
-                                        :slug, :bio, :created_at,
-                                        :location, :latitude, :longitude
-                                      ])
-      }
+      format.json { render json: @members.to_json(only: member_json_fields) }
     end
   end
 
   def show
-    @member        = Member.confirmed.find(params[:id])
+    @member        = Member.confirmed.kept.find_by!(slug: params[:slug])
     @twitter_auth  = @member.auth('twitter')
     @flickr_auth   = @member.auth('flickr')
     @facebook_auth = @member.auth('facebook')
     @posts         = @member.posts
-    # The garden form partial is called from the "New Garden" tab;
-    # it requires a garden to be passed in @garden.
-    # The new garden is not persisted unless Garden#save is called.
-    @garden = Garden.new
+
+    @activity = TimelineService.member_query(@member).limit(30)
+
+    @late = []
+    @super_late = []
+    @harvesting = []
+    @others = []
+
+    @member.plantings.active.annual.each do |planting|
+      if planting.finish_is_predicatable?
+        if planting.super_late?
+          @super_late << planting
+        elsif planting.late?
+          @late << planting
+        elsif planting.harvest_time?
+          @harvesting << planting
+        else
+          @others << planting
+        end
+      end
+    end
+
+    @harvests = Harvest.search(
+      where:    { owner_id: @member.id },
+      boost_by: [:created_at],
+      limit:    16,
+      load:     false
+    )
 
     respond_to do |format|
       format.html # show.html.haml
-      format.json {
-        render json: @member.to_json(only: [
-                                       :id, :login_name, :bio,
-                                       :created_at, :slug, :location,
-                                       :latitude, :longitude
-                                     ])
-      }
-      format.rss { render(
-        layout: false,
-        locals: { member: @member }
-      )}
+      format.json { render json: @member.to_json(only: member_json_fields) }
+      format.rss do
+        render(
+          layout: false,
+          locals: { member: @member }
+        )
+      end
     end
   end
-
-  def view_follows
-    @member = Member.confirmed.find(params[:login_name])
-    @follows = @member.followed.paginate(page: params[:page])
-  end
-
-  def view_followers
-    @member = Member.confirmed.find(params[:login_name])
-    @followers = @member.followers.paginate(page: params[:page])
-  end
-
-  EMAIL_TYPE_STRING = {
-    send_notification_email: "direct message notifications",
-    send_planting_reminder: "planting reminders"
-  }
 
   def unsubscribe
     verifier = ActiveSupport::MessageVerifier.new(ENV['RAILS_SECRET_TOKEN'])
@@ -74,10 +69,9 @@ class MembersController < ApplicationController
     @type = decrypted_message[:type]
     @member.update(@type => false)
 
-    flash.now[:notice] = "You have been unsubscribed from #{EMAIL_TYPE_STRING[@type]} emails."
-
+    flash.now[:notice] = I18n.t('members.unsubscribed', email_type: EMAIL_TYPE_STRING[@type])
   rescue ActiveSupport::MessageVerifier::InvalidSignature
-    flash.now[:alert] = "We're sorry, there was an error updating your settings."
+    flash.now[:alert] = I18n.t('members.unsubscribe.error')
   end
 
   def finish_signup
@@ -87,20 +81,37 @@ class MembersController < ApplicationController
     if @member.update(member_params)
       @member.skip_reconfirmation!
       bypass_sign_in(@member)
-      redirect_to root_path, notice: 'Welcome.'
+      redirect_to root_path, notice: I18n.t('members.welcome')
     else
-      flash[:alert] = 'Failed to complete signup'
+      flash[:alert] = I18n.t('members.signup.error')
       @show_errors = true
     end
   end
 
   private
 
-  def expire_cache_fragments
-    expire_fragment("homepage_stats")
-  end
+  EMAIL_TYPE_STRING = {
+    send_notification_email: "direct message notifications",
+    send_planting_reminder:  "planting reminders"
+  }.freeze
 
   def member_params
     params.require(:member).permit(:login_name, :tos_agreement, :email, :newsletter)
+  end
+
+  def member_json_fields
+    %i(
+      id login_name
+      slug bio created_at
+      location latitude longitude
+    )
+  end
+
+  def members
+    if @sort == 'recently_joined'
+      Member.recently_joined
+    else
+      Member.order(:login_name)
+    end.kept.confirmed.paginate(page: params[:page])
   end
 end
