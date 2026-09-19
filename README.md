@@ -1,27 +1,31 @@
-# Growstuff
+# 🌱 Growstuff
 
-[![Build Status](https://travis-ci.org/Growstuff/growstuff.png)](https://travis-ci.org/Growstuff/growstuff)
-[![Coverage Status](https://coveralls.io/repos/Growstuff/growstuff/badge.png)](https://coveralls.io/r/Growstuff/growstuff)
-[![Code Climate](https://codeclimate.com/github/Growstuff/growstuff/badges/gpa.svg)](https://codeclimate.com/github/Growstuff/growstuff)
+![Build status](https://github.com/Growstuff/growstuff/workflows/CI/badge.svg)
 
 Welcome to the Growstuff project.
 
-Growstuff is an open source/open data project to create a website for
-food gardeners.  We crowdsource information on what our members are
-growing and harvesting, aggregate it, and make it available as open data
-via our API.
+You can find our app at https://www.growstuff.org
+
+Growstuff is an open source/open data project for food gardeners.  We
+crowdsource information on what our members are growing and harvesting,
+aggregate it, and make it available as open data via our API.
 
 Growstuff was founded in 2012 and has been built by dozens of
 [contributors](CONTRIBUTORS.md).  We are an inclusive, welcoming project, and
 encourage participation from people of all backgrounds and skill levels.
 
+## Want to contribute?
+
+Don't ask to ask, the best way to get started is to fork the project, start a codespace and get hacking.
+Dive on in and submit your PRs!
+
+Vibe Coding is more than okay, just make sure you indicate if you have done so and ensure there are tests.
+
 ## Important links
 
-* [Issues](http://github.com/Growstuff/growstuff/issues) (features we're
+* [Issues](https://github.com/orgs/Growstuff/projects/1) (features we're
   working on, known bugs, etc)
-* [Discussion forums](http://talk.growstuff.org/) (design ideas, planning releases)
-* [IRC](https://webchat.freenode.net/) growstuff channel (general chat, brainstorming and troubleshooting) or [Gitter](https://gitter.im/Growstuff/growstuff)
-* [Wiki](https://github.com/Growstuff/growstuff/wiki) (general documentation, etc. Help by migrating from the [old wiki](https://web.archive.org/web/*/wiki.growstuff.org))
+* [Wiki](https://github.com/Growstuff/growstuff/wiki) (general documentation, etc.)
 
 ## For coders
 
@@ -30,9 +34,11 @@ frontend features. We welcome contributions -- see
 [CONTRIBUTING](CONTRIBUTING.md) for details.
 
 * To set up your development environment, see [Getting started](https://github.com/Growstuff/growstuff/wiki/New-contributor-guide).
-* We encourage [pair programming](http://wiki.growstuff.org/index.php/Pairing), especially for newer developers. [Find a pair programming partner.](http://talk.growstuff.org/t/find-a-pair-programming-partner/13)
-* Drop in to our [discussion forums](http://talk.growstuff.org/), IRC or Gitter to chat to other developers, get help, etc.
 * You may also be interested in our [API](https://github.com/Growstuff/growstuff/wiki/API).
+
+### For Home Automation enthusiasts
+
+https://github.com/Growstuff/homeassistant-growstuff/
 
 ## For designers, writers, researchers, data wranglers, and other contributors
 
@@ -41,23 +47,23 @@ your skills and interests.
 
 You might like to check out:
 
-* The [Get Involved](http://wiki.growstuff.org/index.php/Get_involved)
+* The [New Contributor Guide](https://github.com/Growstuff/growstuff/wiki/New-contributor-guide)
   page on our wiki, which has lots of detail for different areas
-* [Growstuff Talk](http://talk.growstuff.org/) especially the [Idea category](http://talk.growstuff.org/c/idea)
 
 Here on Github, you might find these useful:
 
+* [Github Project Board](https://github.com/orgs/Growstuff/projects/1) has stories in "ready" that can be worked on.
 * [needs: design](https://github.com/Growstuff/growstuff/labels/needs:%20design) - tasks requiring high-level design
-* [needs: visual design](https://github.com/Growstuff/growstuff/labels/needs:%20visual design) - tasks requiring visual/graphical design
+* [needs: visual design](https://github.com/Growstuff/growstuff/labels/needs:%20visual+design) - tasks requiring visual/graphical design
 * [needs: documentation](https://github.com/Growstuff/growstuff/labels/needs:%20documentation)
 * [needs: data](https://github.com/Growstuff/growstuff/labels/needs:%20data) - tasks requiring data entry, data design, data import, or similar
 * [curated:beginner](https://github.com/Growstuff/growstuff/labels/curated:%20beginner) - tasks that are ideal for beginner programmers or people new to the project
 
-Feel free to comment on any of the issues you find there, or open up a broader conversation on [Growstuff Talk](http://talk.growstuff.org).
+Feel free to comment on any of the issues on [Github](https://github.com/Growstuff/growstuff/issues).
 
 ## Contact
 
 For more information about this project, contact [info@growstuff.org](mailto:info@growstuff.org).
 
-You can also contact us on [Twitter](http://twitter.com/growstufforg/) or
-[Facebook](https://www.facebook.com/pages/Growstuff/1531133417099494).
+Security Issues: If you find an authorization bypass or data breach, please contact our maintainers directly at [maintainers@growstuff.org](mailto:maintainers@growstuff.org).
+

@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
-%rss{:version => 2.0}
+%rss{ version: 2.0 }
   %channel
     %title
-      Recent posts from #{ @author ? @author : 'all members' } (#{ENV['GROWSTUFF_SITE_NAME']})
+      Recent posts from #{@author ? @author : 'all members'} (#{ENV['GROWSTUFF_SITE_NAME']})
     %link= posts_url
     - @posts.each do |post|
       %item
         %title #{post.subject} by #{post.author.login_name}
         %description
           :escaped_markdown
-            #{ strip_tags post.body }
-        %pubDate= post.created_at.to_s(:rfc822)
+            #{ strip_tags markdownify(post.body) }
+        %pubdate= post.created_at.to_fs(:rfc822)
         %link= post_url(post)
         %guid= post_url(post)

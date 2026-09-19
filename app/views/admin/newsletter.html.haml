@@ -1,6 +1,7 @@
--content_for :title, 'Newsletter subscribers'
+- content_for :title, 'Newsletter subscribers'
 
 %p
 - @members.each do |m|
   = m.email
   %br/
+= will_paginate @members

@@ -1,37 +1,29 @@
+# frozen_string_literal: true
+
 require 'will_paginate/array'
 
 class CropsController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :hierarchy, :search, :show]
-  load_and_authorize_resource
-  skip_authorize_resource only: [:hierarchy, :search]
+  before_action :authenticate_member!, except: %i(index hierarchy search show)
+  load_and_authorize_resource id_param: :slug
+  skip_authorize_resource only: %i(hierarchy search)
+  respond_to :html, :json, :rss, :csv, :svg
+  responders :flash
 
-  # GET /crops
-  # GET /crops.json
   def index
-    @sort = params[:sort]
-    @crops = if @sort == 'alpha'
-               Crop.includes(:scientific_names, { plantings: :photos })
-             else
-               popular_crops
-             end
-    @paginated_crops = @crops.approved.paginate(page: params[:page])
-
-    respond_to do |format|
-      format.html
-      format.json { render json: @crops }
-      format.rss do
-        @crops = Crop.recent.includes(:scientific_names, :creator)
-        render rss: @crops
-      end
-      format.csv do
-        @filename = "Growstuff-Crops-#{Time.zone.now.to_s(:number)}.csv"
-        @crops = Crop.includes(:scientific_names, :plantings, :seeds, :creator)
-        render csv: @crops
-      end
-    end
+    @crops = Crop.search('*', boost_by: %i(plantings_count harvests_count),
+                              limit:    100,
+                              page:     params[:page],
+                              load:     (request.format.csv? || request.format.rss? ? { include: %i(parent scientific_names seeds harvests creator plantings) } : false))
+    @num_requested_crops = requested_crops.size if current_member
+    @filename = filename
+    respond_with @crops
   end
 
-  # GET /crops/wrangle
+  def requested
+    @requested = requested_crops.paginate(page: params[:page])
+    respond_with @requested
+  end
+
   def wrangle
     @approval_status = params[:approval_status]
     @crops = case @approval_status
@@ -41,188 +33,225 @@ class CropsController < ApplicationController
                Crop.rejected
              else
                Crop.recent
-             end
-
-    @crops = @crops.paginate(page: params[:page])
+             end.paginate(page: params[:page])
 
     @crop_wranglers = Role.crop_wranglers
-    respond_to do |format|
-      format.html
-    end
+    respond_with @crops
   end
 
-  # GET /crops/hierarchy
+  def gbif
+    @crop = Crop.find(params[:crop_slug])
+    @crop.update_gbif_data!
+    respond_with @crop, location: @crop
+  end
+
   def hierarchy
-    @crops = Crop.toplevel
-    respond_to do |format|
-      format.html
-    end
+    @crops = Crop.toplevel.order(:name)
+    respond_with @crops
   end
 
-  # GET /crops/search
   def search
     @term = params[:term]
-    @matches = Crop.search(@term)
-    @paginated_matches = @matches.paginate(page: params[:page])
+
+    @crops = CropSearchService.search(@term,
+                                      page:           params[:page],
+                                      per_page:       Crop.per_page,
+                                      current_member:)
 
     respond_to do |format|
-      format.html
-      format.json { render json: @matches }
-    end
-  end
-
-  # GET /crops/1
-  # GET /crops/1.json
-  def show
-    @crop = Crop.includes(:scientific_names, { plantings: :photos }).find(params[:id])
-    @posts = @crop.posts.paginate(page: params[:page])
-
-    respond_to do |format|
-      format.html # show.html.haml
+      format.html do
+        render
+      end
       format.json do
-        # TODO RABL or similar one day to avoid presentation logic here
-        owner_structure = {
-          owner: {
-            only: [:id, :login_name, :location, :latitude, :longitude]
-          }
-        }
-        render json: @crop.to_json(include: {
-                                     plantings: {
-                                       include: owner_structure
-                                     }
-                                   })
+        render json: @crops.to_a
       end
     end
   end
 
-  # GET /crops/new
-  # GET /crops/new.json
+  def show
+    respond_to do |format|
+      format.html do
+        @posts = @crop.posts.order(created_at: :desc).paginate(page: params[:page])
+        @companions = @crop.companions.approved
+        member_ids = @crop.versions.map(&:whodunnit).compact.map(&:to_i)
+        @version_members = Member.where(id: member_ids).index_by(&:id)
+      end
+      format.svg do
+        icon_data = @crop.svg_icon.presence || File.read(Rails.root.join("app/assets/images/icons/sprout.svg"))
+        send_data(icon_data, type: "image/svg+xml", disposition: "inline")
+      end
+      format.json do
+        render json: @crop.to_json(crop_json_fields)
+      end
+    end
+  end
+
   def new
     @crop = Crop.new
     @crop.alternate_names.build
     @crop.scientific_names.build
 
-    respond_to do |format|
-      format.html # new.html.haml
-      format.json { render json: @crop }
-    end
+    respond_with @crop
   end
 
-  # GET /crops/1/edit
   def edit
     @crop.alternate_names.build if @crop.alternate_names.blank?
     @crop.scientific_names.build if @crop.scientific_names.blank?
   end
 
-  # POST /crops
-  # POST /crops.json
   def create
     @crop = Crop.new(crop_params)
 
-    if current_member.has_role? :crop_wrangler
+    if current_member.role? :crop_wrangler
       @crop.creator = current_member
-      success_msg = "Crop was successfully created."
     else
       @crop.requester = current_member
       @crop.approval_status = "pending"
-      success_msg = "Crop was successfully requested."
     end
 
-    respond_to do |format|
-      if @crop.save
-        params[:alt_name].each do |index, value|
-          create_name('alternate', value)
-        end
-        params[:sci_name].each do |index, value|
-          create_name('scientific', value)
-        end
-        unless current_member.has_role? :crop_wrangler
-          Role.crop_wranglers.each do |w|
-            Notifier.new_crop_request(w, @crop).deliver_later!
-          end
-        end
-
-        format.html { redirect_to @crop, notice: success_msg }
-        format.json { render json: @crop, status: :created, location: @crop }
-      else
-        format.html { render action: "new" }
-        format.json { render json: @crop.errors, status: :unprocessable_entity }
-      end
+    if Crop.transaction { @crop.save && save_crop_names }
+      notify_wranglers
+    else
+      @crop.alternate_names.build
+      @crop.scientific_names.build
     end
+
+    respond_with @crop
   end
 
-  # PUT /crops/1
-  # PUT /crops/1.json
   def update
-    previous_status = @crop.approval_status
-
-    @crop.creator = current_member if previous_status == "pending"
-
-    respond_to do |format|
-      if @crop.update(crop_params)
-        recreate_names('alt_name', 'alternate')
-        recreate_names('sci_name', 'scientific')
-
-        if previous_status == "pending"
-          requester = @crop.requester
-          new_status = @crop.approval_status
-          Notifier.crop_request_approved(requester, @crop).deliver_later! if new_status == "approved"
-          Notifier.crop_request_rejected(requester, @crop).deliver_later! if new_status == "rejected"
-        end
-        format.html { redirect_to @crop, notice: 'Crop was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @crop.errors, status: :unprocessable_entity }
-      end
+    if can?(:wrangle, @crop)
+      @crop.approval_status = 'rejected' if params.fetch("reject", false)
+      @crop.approval_status = 'approved' if params.fetch("approve", false)
     end
+
+    @crop.creator = current_member if @crop.approval_status == "pending"
+
+    if @crop.update(crop_params)
+      recreate_names('alt_name', 'alternate')
+      recreate_names('sci_name', 'scientific')
+
+      if @crop.approval_status_changed?(from: "pending", to: "approved")
+        notifier.deliver_now!
+        @crop.update_gbif_data!
+      end
+    else
+      @crop.approval_status = @crop.approval_status_was
+    end
+
+    respond_with @crop
   end
 
-  # DELETE /crops/1
-  # DELETE /crops/1.json
   def destroy
+    @crop = Crop.find_by!(slug: params[:slug])
+    authorize! :destroy, @crop
     @crop.destroy
+    respond_with @crop
+  end
 
-    respond_to do |format|
-      format.html { redirect_to crops_url }
-      format.json { head :no_content }
-    end
+  def data_improvement
+    @active_tab = params[:tab] || 'photos'
+
+    @crops = case @active_tab
+             when 'photos'
+               Crop.approved.where(photo_associations_count: 0).order(plantings_count: :desc)
+             when 'descriptions'
+               Crop.approved.where(description: [nil, '']).order(plantings_count: :desc)
+             when 'youtube'
+               Crop.approved.where(en_youtube_url: [nil, '']).order(plantings_count: :desc)
+             when 'alternate_names'
+               Crop.approved.where.missing(:alternate_names).order(plantings_count: :desc)
+             when 'wikidata'
+               crops_with_wikidata = Crop.joins(:scientific_names).where.not(scientific_names: { wikidata_id: nil }).distinct
+               Crop.approved.where.not(id: crops_with_wikidata).order(plantings_count: :desc)
+             when 'row_spacing'
+               Crop.approved.where(row_spacing: nil).order(plantings_count: :desc)
+             when 'sun_requirements'
+               Crop.approved.where(sun_requirements: [nil, '']).order(plantings_count: :desc)
+             when 'height'
+               Crop.approved.where(height: nil).order(plantings_count: :desc)
+             when 'public_food_key'
+               Crop.approved.where(public_food_key: [nil, '']).order(plantings_count: :desc)
+             else
+               Crop.none
+             end
   end
 
   private
 
-  def popular_crops
-    Crop.popular.includes(:scientific_names, { plantings: :photos })
+  def notifier
+    case @crop.approval_status
+    when "approved"
+      NotifierMailer.crop_request_approved(@crop.requester, @crop)
+    when "rejected"
+      NotifierMailer.crop_request_rejected(@crop.requester, @crop)
+    end
+  end
+
+  def save_crop_names
+    AlternateName.create!(names_params(:alt_name).map { |n| { name: n, creator_id: current_member.id, crop_id: @crop.id, language: "EN" } })
+    ScientificName.create!(names_params(:sci_name).map { |n| { name: n, creator_id: current_member.id, crop_id: @crop.id } })
+  end
+
+  def notify_wranglers
+    return if current_member.role? :crop_wrangler
+
+    Role.crop_wranglers&.each do |w|
+      NotifierMailer.new_crop_request(w, @crop).deliver_now!
+    end
   end
 
   def recreate_names(param_name, name_type)
-    return unless params[param_name].present?
-    destroy_names(name_type)
-    params[param_name].each do |index, value|
-      create_name(name_type, value)
-    end
-  end
+    return if params[param_name].blank?
 
-  def destroy_names(name_type)
-    @crop.send("#{name_type}_names").each do |alt_name|
-      alt_name.destroy
-    end
-  end
+    @crop.send("#{name_type}_names").each(&:destroy)
+    params[param_name].each_value do |value|
+      next if value.empty?
 
-  def create_name(name_type, value)
-    @crop.send("#{name_type}_names").create(name: value, creator_id: current_member.id)
+      if name_type == 'alternate'
+        @crop.send("#{name_type}_names").create!(name: value, creator_id: current_member.id, language: "EN")
+      else
+        @crop.send("#{name_type}_names").create!(name: value, creator_id: current_member.id)
+      end
+    end
   end
 
   def crop_params
-    params.require(:crop).permit(:en_wikipedia_url,
-      :name,
-      :parent_id,
-      :creator_id,
-      :approval_status,
-      :request_notes,
-      :reason_for_rejection,
-      :rejection_notes, scientific_names_attributes: [:scientific_name,
-                                                      :_destroy,
-                                                      :id])
+    params.require(:crop).permit(
+      :name, :en_wikipedia_url, :en_youtube_url,
+      :parent_id, :perennial,
+      :request_notes, :reason_for_rejection,
+      :rejection_notes,
+      :description,
+      :public_food_key,
+      :row_spacing, :spread, :height,
+      :sowing_method, :sun_requirements, :growing_degree_days,
+      scientific_names_attributes: %i(scientific_name _destroy id)
+    )
+  end
+
+  def names_params(name_type)
+    params.require(name_type).values&.reject { |n| n.empty? }
+  end
+
+  def filename
+    "Growstuff-Crops-#{Time.zone.now.to_fs(:number)}.csv"
+  end
+
+  def crop_json_fields
+    {
+      include: {
+        plantings: {
+          include: {
+            owner: { only: %i(id login_name location latitude longitude) }
+          }
+        },
+        scientific_names: { only: [:name] }, alternate_names:  { only: %i(name language) }
+      }
+    }
+  end
+
+  def requested_crops
+    current_member.requested_crops.pending_approval
   end
 end

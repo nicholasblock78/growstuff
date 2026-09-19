@@ -1,25 +1,22 @@
+# frozen_string_literal: true
+
 class ScientificNamesController < ApplicationController
-  before_action :authenticate_member!, except: [:index, :show]
-  load_and_authorize_resource
+  before_action :authenticate_member!, except: %i(index show gbif_suggest)
+  load_and_authorize_resource except: [:gbif_suggest]
+  respond_to :html, :json
+  responders :flash
 
   # GET /scientific_names
   # GET /scientific_names.json
   def index
-    @scientific_names = ScientificName.all
-
-    respond_to do |format|
-      format.html # index.html.haml
-      format.json { render json: @scientific_names }
-    end
+    @scientific_names = ScientificName.all.order(:name).paginate(page: params[:page], per_page: 100)
+    respond_with(@scientific_names)
   end
 
   # GET /scientific_names/1
   # GET /scientific_names/1.json
   def show
-    respond_to do |format|
-      format.html # show.html.haml
-      format.json { render json: @scientific_name }
-    end
+    respond_with(@scientific_name)
   end
 
   # GET /scientific_names/new
@@ -27,46 +24,29 @@ class ScientificNamesController < ApplicationController
   def new
     @scientific_name = ScientificName.new
     @crop = Crop.find_or_initialize_by(id: params[:crop_id])
-
-    respond_to do |format|
-      format.html # new.html.haml
-      format.json { render json: @scientific_name }
-    end
+    respond_with(@scientific_name)
   end
 
   # GET /scientific_names/1/edit
-  def edit
-  end
+  def edit; end
 
   # POST /scientific_names
   # POST /scientific_names.json
   def create
-    params[:scientific_name][:creator_id] = current_member.id
     @scientific_name = ScientificName.new(scientific_name_params)
-
-    respond_to do |format|
-      if @scientific_name.save
-        format.html { redirect_to @scientific_name.crop, notice: 'Scientific name was successfully created.' }
-        format.json { render json: @scientific_name, status: :created, location: @scientific_name }
-      else
-        format.html { render action: "new" }
-        format.json { render json: @scientific_name.errors, status: :unprocessable_entity }
-      end
-    end
+    @scientific_name.creator = current_member
+    gbif_sync!(@scientific_name)
+    @scientific_name.save
+    respond_with(@scientific_name.crop)
   end
 
   # PUT /scientific_names/1
   # PUT /scientific_names/1.json
   def update
-    respond_to do |format|
-      if @scientific_name.update(scientific_name_params)
-        format.html { redirect_to @scientific_name.crop, notice: 'Scientific name was successfully updated.' }
-        format.json { head :no_content }
-      else
-        format.html { render action: "edit" }
-        format.json { render json: @scientific_name.errors, status: :unprocessable_entity }
-      end
-    end
+    @scientific_name.assign_attributes(scientific_name_params)
+    gbif_sync!(@scientific_name)
+    @scientific_name.save
+    respond_with(@scientific_name.crop)
   end
 
   # DELETE /scientific_names/1
@@ -74,18 +54,30 @@ class ScientificNamesController < ApplicationController
   def destroy
     @crop = @scientific_name.crop
     @scientific_name.destroy
+    flash[:notice] = t('scientific_names.deleted')
+    respond_with(@crop)
+  end
 
-    respond_to do |format|
-      format.html {
-        redirect_to @crop, notice: 'Scientific name was successfully deleted.'
-      }
-      format.json { head :no_content }
-    end
+  def gbif_suggest
+    render json: gbif_service.suggest(params[:term])
   end
 
   private
 
+  def gbif_sync!(model)
+    return unless model.gbif_key
+
+    result = gbif_service.fetch(model.gbif_key)
+
+    model.gbif_rank = result["rank"]
+    model.gbif_status = result["status"]
+  end
+
   def scientific_name_params
-    params.require(:scientific_name).permit(:crop_id, :name, :creator_id)
+    params.require(:scientific_name).permit(:crop_id, :name, :gbif_key, :wikidata_id)
+  end
+
+  def gbif_service
+    GbifService.new
   end
 end
